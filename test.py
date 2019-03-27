@@ -57,7 +57,8 @@ class ThreadedServer(object):
                     key_name = req_from_browser_list[i].split(': ')[0]
                     value = req_from_browser_list[i].split(': ')[1]
                     req_header_dict[key_name] = value
-                # req_header_dict['Accept-Encoding'] = 'deflate'
+                req_header_dict['Accept-Encoding'] = 'deflate'
+                req_header_dict['Connection'] = 'Close'
                 req_line_str = req_line.split()
                 method = req_line_str[0]
                 address = req_line_str[1]
