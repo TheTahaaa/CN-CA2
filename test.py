@@ -32,7 +32,7 @@ class ThreadedServer(object):
 
 
     def listen(self):
-        self.sock.listen(5)
+        self.sock.listen()
         logging.info('waiting for a connection')
         while True:
             client, client_address = self.sock.accept()
@@ -62,6 +62,8 @@ class ThreadedServer(object):
                     key_name = req_from_browser_list[i].split(': ')[0]
                     value = req_from_browser_list[i].split(': ')[1]
                     req_header_dict[key_name] = value
+                if config_data['privacy']['enable'] == 1:
+                    req_header_dict['User-Agent'] = config_data['privacy']['userAgent']
                 req_header_dict['Accept-Encoding'] = 'deflate'
                 req_header_dict['Connection'] = 'Close'
                 # if 'Proxy-Connection' in req_header_dict.keys():
@@ -86,9 +88,10 @@ class ThreadedServer(object):
                 sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock2.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 server_port = 80
-                server_ip = socket.gethostbyname(req_header_dict['Host'])
+                tempHost = req_header_dict['Host']
+                server_ip = socket.gethostbyname(tempHost)
                 sock2.connect((server_ip, server_port))
-                logging.info(f'Proxy open a connection to the server {[server_ip]}')
+                logging.info(f'Proxy open a connection to the server {tempHost} {[server_ip]}')
                 sock2.send(req_to_server.encode('ascii', 'ignore'))
                 logging.info('\n''----------------------------------------------------------------------\n'
                              'This is request from proxy to server:\n'
