@@ -38,7 +38,7 @@ class ThreadedServer(object):
         while True:
             client, client_address = self.sock.accept()
             logging.info(f'connection from {client_address}')
-            # client.settimeout(60)
+            client.settimeout(60)
             threading.Thread(target=self.listenToClient, args=(client, client_address)).start()
 
     def listenToClient(self, client, client_address):
@@ -56,6 +56,19 @@ class ThreadedServer(object):
                              f'{req_from_browser_str}\n'
                              '----------------------------------------------------------------------')
                 req_from_browser_list = req_from_browser_str.split('\r\n')
+                # check the accounting
+                if client_address[0] in config_accounting_dict:
+                    if int(config_accounting_dict[client_address[0]]) - len(req_from_browser_str) < 0:
+                        print('Your capacity is not enough')
+                        logging.info(f'{client_address} capacity is not enough')
+                        raise Exception
+                    else:
+                        config_accounting_dict[client_address[0]] = str(int(config_accounting_dict[client_address[0]]) -
+                                                                        len(req_from_browser_str))
+                else:
+                    print("You cannot use the proxy!")
+                    logging.info(f'{client_address} cannot use the proxy!')
+                    raise Exception
                 req_line = req_from_browser_list[0]
                 # initialize a dictionary for parsing a request
                 req_header_dict = {}
@@ -149,6 +162,11 @@ if __name__ == "__main__":
         config_data = json.load(f)
     proxy_port = config_data['port']
     proxy_ip = "127.0.0.1"
+    config_accounting_dict = {}
+    for i in range(0, len(config_data['accounting']['users'])):
+        key_name = config_data['accounting']['users'][i]['IP']
+        value = config_data['accounting']['users'][i]['volume']
+        config_accounting_dict[key_name] = value
     logging.basicConfig(filename='proxy.log', level=logging.INFO, format='[%(asctime)s] %(message)s',
                         datefmt='%d/%b/%Y %I:%M:%S %H:%M:%S')
     ThreadedServer(proxy_ip, proxy_port).listen()

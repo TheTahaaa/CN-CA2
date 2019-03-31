@@ -30,14 +30,14 @@
     ]
   },
   
-	"accounting":{
-		"users":[
-			{
-				"IP": "127.0.0.1",
-				"volume":"80000000" 
-			}
-		]
-	},
+  "accounting":{
+    "users":[
+      {
+        "IP": "127.0.0.1",
+        "volume":"800"
+      }
+    ]
+  },
 	
   "HTTPInjection": {
     "enable": true,
