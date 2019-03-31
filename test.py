@@ -2,6 +2,7 @@ import json
 import socket
 import threading
 import logging
+from bs4 import BeautifulSoup
 
 
 def recv_all(target_socket):
@@ -62,6 +63,7 @@ class ThreadedServer(object):
                     key_name = req_from_browser_list[i].split(': ')[0]
                     value = req_from_browser_list[i].split(': ')[1]
                     req_header_dict[key_name] = value
+                #add privacy part
                 if config_data['privacy']['enable'] == 1:
                     req_header_dict['User-Agent'] = config_data['privacy']['userAgent']
                 req_header_dict['Accept-Encoding'] = 'deflate'
@@ -98,15 +100,42 @@ class ThreadedServer(object):
                              f'{req_to_server}'
                              '----------------------------------------------------------------------')
                 resp_to_proxy = recv_all(sock2)
-                decoded_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('<!DOCTYPE html>')[0]
+                header_of_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('<!DOCTYPE html>')[0]
+                body_of_resp = resp_to_proxy.decode('utf-8', 'ignore').split('<!DOCTYPE html>')[1]
+                body_of_resp = '<!DOCTYPE html>' + body_of_resp
+                soup = BeautifulSoup(body_of_resp, 'html.parser')
+                # print(soup.prettify())
+                # print(list(soup.children))
                 logging.info('\n''----------------------------------------------------------------------\n'
                              'This is response from the server to proxy:\n'
-                             f'{decoded_resp_to_proxy}'
+                             f'{header_of_resp_to_proxy}'
                              '----------------------------------------------------------------------')
+                #parse the response
+                resp_from_server_list = header_of_resp_to_proxy.split('\r\n')
+                resp_first_line = resp_from_server_list[0]
+                resp_header_dict = {}
+                for i in range(1, len(resp_from_server_list) - 2):
+                    key_name = resp_from_server_list[i].split(': ')[0]
+                    value = resp_from_server_list[i].split(': ')[1]
+                    resp_header_dict[key_name] = value
+                # print(resp_header_dict)
+                # add http injection part
+                if config_data['HTTPInjection']['enable'] == 1:
+                    if resp_header_dict['Content-Type'].split(';')[0] == 'text/html':
+                        injection_element = soup.new_tag('p', id='ProxyInjection')
+                        injection_element.attrs['style'] = 'background-color:blue; height:45px; width:100%; position:fixed; '\
+                                                           'top:0px; left:0px; margin:0px; padding: 15px 0 0 0;'\
+                                                           'z-index: 1060; text-align: center; color: white'
+                        injection_element.insert(0, config_data['HTTPInjection']['post']['body'])
+                        if soup.body:
+                            soup.body.insert(0, injection_element)
+                            body_of_resp = soup.prettify()
+                resp_to_proxy = header_of_resp_to_proxy.encode() + body_of_resp.encode()
+                # print(resp_to_proxy)
                 client.send(resp_to_proxy)
                 logging.info('\n''----------------------------------------------------------------------\n'
                              'Proxy send response to client:\n'
-                             f'{decoded_resp_to_proxy}'
+                             f'{header_of_resp_to_proxy}'
                              '----------------------------------------------------------------------')
                 sock2.close()
                 # connection.sendall(req_to_server.encode('utf-8', 'ignore'))
