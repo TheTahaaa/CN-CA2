@@ -2,6 +2,9 @@ import json
 import socket
 import threading
 import logging
+import ssl
+import base64
+import getpass
 from bs4 import BeautifulSoup
 
 
@@ -56,6 +59,7 @@ class ThreadedServer(object):
                              f'{req_from_browser_str}\n'
                              '----------------------------------------------------------------------')
                 req_from_browser_list = req_from_browser_str.split('\r\n')
+
                 # check the accounting
                 if client_address[0] in config_accounting_dict:
                     if int(config_accounting_dict[client_address[0]]) - len(req_from_browser_str) < 0:
@@ -70,13 +74,86 @@ class ThreadedServer(object):
                     logging.info(f'{client_address} cannot use the proxy!')
                     raise Exception
                 req_line = req_from_browser_list[0]
+
                 # initialize a dictionary for parsing a request
                 req_header_dict = {}
                 for i in range(1, len(req_from_browser_list) - 2):
                     key_name = req_from_browser_list[i].split(': ')[0]
                     value = req_from_browser_list[i].split(': ')[1]
                     req_header_dict[key_name] = value
-                #add privacy part
+
+                # add notify part
+                if req_header_dict['Host'] in notify_dict:
+                    temp = req_header_dict['Host']
+                    logging.info(f'You are not able to access {temp}')
+                    if notify_dict[req_header_dict['Host']] == 0:
+                        raise Exception
+                    else:
+                        mailServer = 'smtp.gmail.com'
+                        mailPort = 465
+                        senderMail = 'taha.bagheri98@gmail.com'
+                        receiveMail = 'taha.bagheri98@gmail.com'
+                        mailMessage = req_from_browser_str
+                        username = "taha.bagheri98@gmail.com"
+                        password = ""
+                        mail_sock = ssl.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM),
+                                                    ssl_version=ssl.PROTOCOL_SSLv23)
+                        mail_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        mail_sock.connect((mailServer, mailPort))
+                        respon = mail_sock.recv(2048)
+                        print(str(respon, 'utf-8'))
+                        heloMesg = 'HELO Taha\r\n'
+                        mail_sock.send(heloMesg.encode('utf-8'))
+                        respon = mail_sock.recv(2048)
+                        print(str(respon, 'utf-8'))
+                        authMesg = 'AUTH LOGIN\r\n'
+                        crlfMesg = '\r\n'
+                        mail_sock.send(authMesg.encode('utf-8'))
+                        respon = mail_sock.recv(2048)
+                        print(str(respon, 'utf-8'))
+                        user64 = base64.b64encode((username+crlfMesg).encode('utf-8'))
+                        pass64 = base64.b64encode(password.encode('utf-8'))
+                        mail_sock.send(user64)
+                        mail_sock.send(crlfMesg.encode('utf-8'))
+                        respon = mail_sock.recv(2048)
+                        print(str(respon, 'utf-8'))
+                        mail_sock.send(pass64)
+                        mail_sock.send(crlfMesg.encode('utf-8'))
+                        respon = mail_sock.recv(2048)
+                        print(str(respon, 'utf-8'))
+                        fromMesg = 'MAIL FROM: <' + senderMail + '>\r\n'
+                        mail_sock.send(fromMesg.encode('utf-8'))
+                        respon = mail_sock.recv(2048)
+                        print(str(respon, 'utf-8'))
+                        rcptMesg = 'RCPT TO: <' + receiveMail + '>\r\n'
+                        mail_sock.send(rcptMesg.encode('utf-8'))
+                        respon = mail_sock.recv(2048)
+                        print(str(respon, 'utf-8'))
+                        dataMesg = 'DATA\r\n'
+                        mail_sock.send(dataMesg.encode('utf-8'))
+                        respon = mail_sock.recv(2048)
+                        print(str(respon, 'utf-8'))
+                        # mailbody = mailMessage + '\r\n'
+                        # mail_sock.send(mailbody.encode('utf-8'))
+                        # fullStop = '\r\n.\r\n'
+                        # mail_sock.send(fullStop.encode('utf-8'))
+                        # respon = mail_sock.recv(2048)
+                        # print(str(respon, 'utf-8'))
+                        subject = 'Restricted Proxy Access'
+                        body = 'We have just received a restricted http request. The Request is as below: \n' \
+                               + mailMessage
+                        mail_sock.send(
+                            ("Subject: " + subject + "\r\n\r\n" + body + "\r\n\r\n.\r\n" + "\r\n").encode())
+                        mail_sock.recv()
+                        quitMesg = 'QUIT\r\n'
+                        mail_sock.send(quitMesg.encode('utf-8'))
+                        respon = mail_sock.recv(2048)
+                        print(str(respon, 'utf-8'))
+                        # Close the socket to finish
+                        mail_sock.close()
+                        logging.info('Mail sent to the manager')
+                        raise Exception
+                # add privacy part
                 if config_data['privacy']['enable'] == 1:
                     req_header_dict['User-Agent'] = config_data['privacy']['userAgent']
                 req_header_dict['Accept-Encoding'] = 'deflate'
@@ -162,11 +239,22 @@ if __name__ == "__main__":
         config_data = json.load(f)
     proxy_port = config_data['port']
     proxy_ip = "127.0.0.1"
+
+    # initial config_accounting_dict
     config_accounting_dict = {}
     for i in range(0, len(config_data['accounting']['users'])):
         key_name = config_data['accounting']['users'][i]['IP']
         value = config_data['accounting']['users'][i]['volume']
         config_accounting_dict[key_name] = value
+
+    # initial notify_dict
+    notify_dict = {}
+    if config_data['restriction']['enable'] == 1:
+        for i in range(0, len(config_data['restriction']['targets'])):
+            key_name = config_data['restriction']['targets'][i]['URL']
+            value = config_data['restriction']['targets'][i]['notify']
+            notify_dict[key_name] = value
+
     logging.basicConfig(filename='proxy.log', level=logging.INFO, format='[%(asctime)s] %(message)s',
                         datefmt='%d/%b/%Y %I:%M:%S %H:%M:%S')
     ThreadedServer(proxy_ip, proxy_port).listen()
