@@ -24,7 +24,7 @@
         "notify": "true"
       },
       {
-        "URL": "acm.ut.ac.ir",
+        "URL": "accm.ut.ac.ir",
         "notify": "false"
       }
     ]
@@ -34,7 +34,7 @@
     "users":[
       {
         "IP": "127.0.0.1",
-        "volume":"800000"
+        "volume":"8000000000"
       }
     ]
   },
