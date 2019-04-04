@@ -333,6 +333,13 @@ class ThreadedServer(object):
                 else:
                     client.sendall(resp_to_proxy)
 
+
+                decod_resp = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n')[0]
+                logging.info('\n''----------------------------------------------------------------------\n'
+                             'Proxy send response to client with these headers::\n'
+                             f'{decod_resp}'
+                             '----------------------------------------------------------------------')
+
                 #add to cache
                 if 'Cache-Control' in head_resp_dict:
                     if 'no-cache' in head_resp_dict['Cache-Control']:
@@ -343,12 +350,6 @@ class ThreadedServer(object):
                     cached_url = req_line.split()[1]
                     logging.info(f'\n {cached_url} added to the to the cache\n')
 
-
-                # decod_resp = resp_to_proxy.decode('utf-8', 'ignore')
-                # logging.info('\n''----------------------------------------------------------------------\n'
-                #                       'Proxy send response to client:\n'
-                #                       f'{decod_resp}'
-                #                       '----------------------------------------------------------------------')
                 # logging.info('\n''----------------------------------------------------------------------\n'
                 #              'This is response from the server to proxy:\n'
                 #              f'{header_of_resp_to_proxy}'
