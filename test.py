@@ -4,6 +4,7 @@ import threading
 import logging
 import ssl
 import base64
+import collections
 import getpass
 from bs4 import BeautifulSoup
 
@@ -27,6 +28,28 @@ def recv_all(target_socket):
     return message
 
 
+class LRUCache:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.cache = collections.OrderedDict()
+
+    def get(self, key):
+        try:
+            value = self.cache.pop(key)
+            self.cache[key] = value
+            return value
+        except KeyError:
+            return -1
+
+    def set(self, key, value):
+        try:
+            self.cache.pop(key)
+        except KeyError:
+            if len(self.cache) >= self.capacity:
+                self.cache.popitem(last=False)
+        self.cache[key] = value
+
+
 class ThreadedServer(object):
     def __init__(self, host, port):
         logging.info('Proxy launched')
@@ -40,7 +63,7 @@ class ThreadedServer(object):
 
 
     def listen(self):
-        self.sock.listen(7)
+        self.sock.listen()
         logging.info('waiting for a connection')
         while True:
             client, client_address = self.sock.accept()
@@ -86,6 +109,12 @@ class ThreadedServer(object):
                     value = req_from_browser_list[i].split(': ')[1]
                     req_header_dict[key_name] = value
 
+                #fetch cache
+                if cache.get(req_line) != -1:
+                    client.sendall(cache.get(req_line))
+                    cached_req_url = req_line.split()[1]
+                    logging.info(f'\n {cached_req_url} get from cache!\n')
+                    continue
                 # add notify part
                 if req_header_dict['Host'] in notify_dict:
                     temp = req_header_dict['Host']
@@ -194,16 +223,20 @@ class ThreadedServer(object):
                              f'{req_to_server}'
                              '----------------------------------------------------------------------')
                 resp_to_proxy = recv_all(sock2)
+                #add to cache
+                cache.set(req_line, resp_to_proxy)
+                cached_url = req_line.split()[1]
+                logging.info(f'\n {cached_url} added to the to the cache\n')
                 # decod_resp = resp_to_proxy.decode('utf-8', 'ignore')
                 # logging.info('\n''----------------------------------------------------------------------\n'
                 #                       'Proxy send response to client:\n'
                 #                       f'{decod_resp}'
                 #                       '----------------------------------------------------------------------')
                 # header_of_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore')
-                # if '<!DOCTYPE html>' in header_of_resp_to_proxy:
-                #         header_of_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('<!DOCTYPE html>')[0]
-                #         body_of_resp = resp_to_proxy.decode('utf-8', 'ignore').split('<!DOCTYPE html>')[1]
-                #         body_of_resp = '<!DOCTYPE html>' + body_of_resp
+                # if '<!DOCTYPE html' in header_of_resp_to_proxy:
+                #         header_of_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n')[0]
+                #         body_of_resp = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n')[1]
+                #         # body_of_resp = '<!DOCTYPE html>' + body_of_resp
                 #         soup = BeautifulSoup(body_of_resp, 'html.parser')
                 #         # parse the response
                 #         resp_from_server_list = header_of_resp_to_proxy.split('\r\n')
@@ -220,16 +253,17 @@ class ThreadedServer(object):
                 #                                'top:0px; left:0px; margin:0px; padding: 15px 0 0 0;' \
                 #                                'z-index: 1060; text-align: center; color: white'
                 #                 injection_element.insert(0, config_data['HTTPInjection']['post']['body'])
-                #                 if soup.body:
-                #                     soup.body.insert(0, injection_element)
-                #                     body_of_resp = soup.prettify()
-                #         resp_to_proxy = header_of_resp_to_proxy.encode() + body_of_resp.encode()
+                #                 # if soup.body:
+                #                 soup.body.insert(0, injection_element)
+                #                 body_of_resp = soup.prettify()
+                #                 print(body_of_resp)
+                #         resp_to_proxy = header_of_resp_to_proxy.encode() + ('\r\n\r\n').encode() + body_of_resp.encode()
                 #         decod_resp = resp_to_proxy.decode('utf-8', 'ignore')
                 #         logging.info('\n''----------------------------------------------------------------------\n'
                 #                      'Proxy send response to client:\n'
                 #                      f'{decod_resp}'
                 #                      '----------------------------------------------------------------------')
-                #         client.send(resp_to_proxy)
+                #         client.sendall(resp_to_proxy)
                 # else:
                 client.sendall(resp_to_proxy)
                 # print(soup.prettify())
@@ -273,6 +307,8 @@ if __name__ == "__main__":
             key_name = config_data['restriction']['targets'][i]['URL']
             value = config_data['restriction']['targets'][i]['notify']
             notify_dict[key_name] = value
+
+    cache = LRUCache(config_data['caching']['size'])
 
     logging.basicConfig(filename='proxy.log', level=logging.INFO, format='[%(asctime)s] %(message)s',
                         datefmt='%d/%b/%Y %I:%M:%S %H:%M:%S')

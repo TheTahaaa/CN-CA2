@@ -8,7 +8,7 @@
 
   "caching": {
     "enable": true,
-	 "size": 200
+	 "size": 30
   },
 
   "privacy": {
