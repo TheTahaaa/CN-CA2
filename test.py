@@ -234,7 +234,9 @@ class ThreadedServer(object):
                              f'{req_to_server}'
                              '----------------------------------------------------------------------')
                 resp_to_proxy = recv_all(sock2)
-                head_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n')[0]
+                # print(resp_to_proxy)
+                logging.info(f'{resp_to_proxy}')
+                head_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n', 1)[0]
                 #add to cache
                 head_resp_dict = parse_head_resp(head_resp_to_proxy)
                 if 'Cache-Control' in head_resp_dict:
@@ -245,59 +247,38 @@ class ThreadedServer(object):
                     cache.set(req_line, resp_to_proxy)
                     cached_url = req_line.split()[1]
                     logging.info(f'\n {cached_url} added to the to the cache\n')
+
+                if 'text/html' in head_resp_dict['Content-Type']:
+                    if config_data['HTTPInjection']['enable'] == 1:
+                        body_of_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n', 1)[1]
+                        soup = BeautifulSoup(body_of_resp_to_proxy, 'html.parser')
+                        injection_element = soup.new_tag('p', id='ProxyInjection')
+                        injection_element.attrs[
+                            'style'] = 'background-color:blue; height:45px; width:100%; position:fixed; ' \
+                                       'top:0px; left:0px; margin:0px; padding: 15px 0 0 0;' \
+                                       'z-index: 1060; text-align: center; color: white'
+                        injection_element.insert(0, config_data['HTTPInjection']['post']['body'])
+                        # if soup.body:
+                        soup.body.insert(0, injection_element)
+                        body_of_resp_to_proxy = soup.prettify()
+                        # print(body_of_resp)
+
+                        resp_to_proxy = (head_resp_to_proxy+'\r\n\r\n'+body_of_resp_to_proxy).encode()
+                        client.sendall(resp_to_proxy)
+                else:
+                    client.sendall(resp_to_proxy)
+
                 # decod_resp = resp_to_proxy.decode('utf-8', 'ignore')
                 # logging.info('\n''----------------------------------------------------------------------\n'
                 #                       'Proxy send response to client:\n'
                 #                       f'{decod_resp}'
                 #                       '----------------------------------------------------------------------')
-                # header_of_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore')
-                # if '<!DOCTYPE html' in header_of_resp_to_proxy:
-                #         header_of_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n')[0]
-                #         body_of_resp = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n')[1]
-                #         # body_of_resp = '<!DOCTYPE html>' + body_of_resp
-                #         soup = BeautifulSoup(body_of_resp, 'html.parser')
-                #         # parse the response
-                #         resp_from_server_list = header_of_resp_to_proxy.split('\r\n')
-                #         resp_header_dict = {}
-                #         for i in range(1, len(resp_from_server_list) - 2):
-                #             key_name = resp_from_server_list[i].split(': ')[0]
-                #             value = resp_from_server_list[i].split(': ')[1]
-                #             resp_header_dict[key_name] = value
-                #         if config_data['HTTPInjection']['enable'] == 1:
-                #             if resp_header_dict['Content-Type'].split(';')[0] == 'text/html':
-                #                 injection_element = soup.new_tag('p', id='ProxyInjection')
-                #                 injection_element.attrs[
-                #                     'style'] = 'background-color:blue; height:45px; width:100%; position:fixed; ' \
-                #                                'top:0px; left:0px; margin:0px; padding: 15px 0 0 0;' \
-                #                                'z-index: 1060; text-align: center; color: white'
-                #                 injection_element.insert(0, config_data['HTTPInjection']['post']['body'])
-                #                 # if soup.body:
-                #                 soup.body.insert(0, injection_element)
-                #                 body_of_resp = soup.prettify()
-                #                 print(body_of_resp)
-                #         resp_to_proxy = header_of_resp_to_proxy.encode() + ('\r\n\r\n').encode() + body_of_resp.encode()
-                #         decod_resp = resp_to_proxy.decode('utf-8', 'ignore')
-                #         logging.info('\n''----------------------------------------------------------------------\n'
-                #                      'Proxy send response to client:\n'
-                #                      f'{decod_resp}'
-                #                      '----------------------------------------------------------------------')
-                #         client.sendall(resp_to_proxy)
-                # else:
-                client.sendall(resp_to_proxy)
-                # print(soup.prettify())
-                # print(list(soup.children))
                 # logging.info('\n''----------------------------------------------------------------------\n'
                 #              'This is response from the server to proxy:\n'
                 #              f'{header_of_resp_to_proxy}'
                 #              '----------------------------------------------------------------------')
                 #
-                # # print(resp_header_dict)
-                # # add http injection part
-                # # print(resp_to_proxy)
-                # logging.info('\n''----------------------------------------------------------------------\n'
-                #              'Proxy send response to client:\n'
-                #              f'{header_of_resp_to_proxy}'
-                #              '----------------------------------------------------------------------')
+
                 sock2.close()
                 # connection.sendall(req_to_server.encode('utf-8', 'ignore'))
             except Exception as ex:
