@@ -28,6 +28,16 @@ def recv_all(target_socket):
     return message
 
 
+def parse_head_resp(head_resp):
+    head_resp_dict = {}
+    head_resp_list = head_resp.split('\r\n')
+    for i in range(1, len(head_resp_list)):
+        key_name = head_resp_list[i].split(': ')[0]
+        value = head_resp_list[i].split(': ')[1]
+        head_resp_dict[key_name] = value
+    return head_resp_dict
+
+
 class LRUCache:
     def __init__(self, capacity):
         self.capacity = capacity
@@ -72,7 +82,8 @@ class ThreadedServer(object):
             threading.Thread(target=self.listenToClient, args=(client, client_address)).start()
 
     def listenToClient(self, client, client_address):
-        client.setblocking(0)
+        # client.setblocking(0)
+        client.settimeout(0.5)
         while True:
             try:
                 req_from_browser = recv_all(client)
@@ -223,10 +234,17 @@ class ThreadedServer(object):
                              f'{req_to_server}'
                              '----------------------------------------------------------------------')
                 resp_to_proxy = recv_all(sock2)
+                head_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n')[0]
                 #add to cache
-                cache.set(req_line, resp_to_proxy)
-                cached_url = req_line.split()[1]
-                logging.info(f'\n {cached_url} added to the to the cache\n')
+                head_resp_dict = parse_head_resp(head_resp_to_proxy)
+                if 'Cache-Control' in head_resp_dict:
+                    if 'no-cache' in head_resp_dict['Cache-Control']:
+                        cached_url = req_line.split()[1]
+                        logging.info(f'\n {cached_url} dont added to the to the cache\n')
+                else:
+                    cache.set(req_line, resp_to_proxy)
+                    cached_url = req_line.split()[1]
+                    logging.info(f'\n {cached_url} added to the to the cache\n')
                 # decod_resp = resp_to_proxy.decode('utf-8', 'ignore')
                 # logging.info('\n''----------------------------------------------------------------------\n'
                 #                       'Proxy send response to client:\n'
@@ -282,7 +300,8 @@ class ThreadedServer(object):
                 #              '----------------------------------------------------------------------')
                 sock2.close()
                 # connection.sendall(req_to_server.encode('utf-8', 'ignore'))
-            except:
+            except Exception as ex:
+                print(ex)
                 client.close()
                 return False
 
