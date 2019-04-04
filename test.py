@@ -5,7 +5,9 @@ import logging
 import ssl
 import base64
 import collections
-import getpass
+from wsgiref.handlers import format_date_time
+from datetime import datetime
+from time import mktime
 from bs4 import BeautifulSoup
 
 
@@ -83,7 +85,7 @@ class ThreadedServer(object):
 
     def listenToClient(self, client, client_address):
         # client.setblocking(0)
-        client.settimeout(0.5)
+        client.settimeout(2)
         while True:
             try:
                 req_from_browser = recv_all(client)
@@ -122,10 +124,83 @@ class ThreadedServer(object):
 
                 #fetch cache
                 if cache.get(req_line) != -1:
-                    client.sendall(cache.get(req_line))
-                    cached_req_url = req_line.split()[1]
-                    logging.info(f'\n {cached_req_url} get from cache!\n')
-                    continue
+                    print(cache.get(req_line))
+                    resp_head_dict = parse_head_resp(cache.get(req_line).decode('utf-8', 'ignore').split('\r\n\r\n')[0])
+                    if 'Expire' in resp_head_dict:
+                        resp_date = resp_head_dict['Expire']
+                        now = datetime.now()
+                        stamp = mktime(now.timetuple())
+                        now_date = format_date_time(stamp)
+                        if now_date < resp_date:
+                            client.sendall(cache.get(req_line))
+                            cached_req_url = req_line.split()[1]
+                            logging.info(f'\n {cached_req_url} get from cache!\n')
+                            continue
+                        else:
+                            cached_req_url = req_line.split()[1]
+                            logging.info(f'\n {cached_req_url} response expire!\n')
+                            req_header_dict['If-Modified-Since'] = resp_head_dict['Last-Modified']
+                            #initial request to server
+                            md_req_to_server = ""
+                            md_req_to_server += req_line + '\r\n'
+                            for key, value in req_header_dict.items():
+                                head_temp = key + ': ' + value + '\r\n'
+                                md_req_to_server += head_temp
+                            md_req_to_server += '\r\n\r\n'
+                            sockMd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            sockMd.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                            server_port = 80
+                            tempHost = req_header_dict['Host']
+                            server_ip = socket.gethostbyname(tempHost)
+                            sockMd.connect((server_ip, server_port))
+                            sockMd.sendall(md_req_to_server.encode())
+                            md_resp = recv_all(sockMd)
+                            md_resp_list_first_line = md_resp.decode('utf-8', 'ignore').split('\r\n')[0]
+                            if md_resp_list_first_line.split()[1] == '304':
+                                client.sendall(cache.get(req_line))
+                                cached_req_url = req_line.split()[1]
+                                logging.info(f'\n {cached_req_url} get from cache by 304!\n')
+                                continue
+                            elif md_resp_list_first_line.split()[1] == '200':
+                                logging.info(f'\n get 200 from server!\n')
+                                head_resp_to_proxy = md_resp.decode('utf-8', 'ignore').split('\r\n\r\n', 1)[0]
+                                head_resp_dict = parse_head_resp(head_resp_to_proxy)
+                                if 'Content-Type' in head_resp_dict and 'text/html' in head_resp_dict['Content-Type']:
+                                    if config_data['HTTPInjection']['enable'] == 1:
+                                        body_of_resp_to_proxy = \
+                                        md_resp.decode('utf-8', 'ignore').split('\r\n\r\n', 1)[1]
+                                        soup = BeautifulSoup(body_of_resp_to_proxy, 'html.parser')
+                                        injection_element = soup.new_tag('p', id='ProxyInjection')
+                                        injection_element.attrs[
+                                            'style'] = 'background-color:blue; height:45px; width:100%; position:fixed; ' \
+                                                       'top:0px; left:0px; margin:0px; padding: 15px 0 0 0;' \
+                                                       'z-index: 1060; text-align: center; color: white'
+                                        injection_element.insert(0, config_data['HTTPInjection']['post']['body'])
+                                        if soup.body:
+                                            soup.body.insert(0, injection_element)
+                                            body_of_resp_to_proxy = soup.prettify()
+                                        # print(body_of_resp)
+
+                                        md_resp = (
+                                                    head_resp_to_proxy + '\r\n\r\n' + body_of_resp_to_proxy).encode()
+                                        client.sendall(md_resp)
+                                else:
+                                    client.sendall(md_resp)
+
+                                # add to cache
+                                cache.set(req_line, md_resp)
+                                cached_url = req_line.split()[1]
+                                logging.info(f'\n {cached_url} added to the to the cache\n')
+                                sockMd.close()
+                                continue
+                    else:
+                        client.sendall(cache.get(req_line))
+                        cached_req_url = req_line.split()[1]
+                        logging.info(f'\n {cached_req_url} get from cache!\n')
+                        continue
+
+
+
                 # add notify part
                 if req_header_dict['Host'] in notify_dict:
                     temp = req_header_dict['Host']
@@ -235,20 +310,10 @@ class ThreadedServer(object):
                              '----------------------------------------------------------------------')
                 resp_to_proxy = recv_all(sock2)
                 # print(resp_to_proxy)
-                logging.info(f'{resp_to_proxy}')
                 head_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n', 1)[0]
-                #add to cache
                 head_resp_dict = parse_head_resp(head_resp_to_proxy)
-                if 'Cache-Control' in head_resp_dict:
-                    if 'no-cache' in head_resp_dict['Cache-Control']:
-                        cached_url = req_line.split()[1]
-                        logging.info(f'\n {cached_url} dont added to the to the cache\n')
-                else:
-                    cache.set(req_line, resp_to_proxy)
-                    cached_url = req_line.split()[1]
-                    logging.info(f'\n {cached_url} added to the to the cache\n')
 
-                if 'text/html' in head_resp_dict['Content-Type']:
+                if 'Content-Type' in head_resp_dict and 'text/html' in head_resp_dict['Content-Type']:
                     if config_data['HTTPInjection']['enable'] == 1:
                         body_of_resp_to_proxy = resp_to_proxy.decode('utf-8', 'ignore').split('\r\n\r\n', 1)[1]
                         soup = BeautifulSoup(body_of_resp_to_proxy, 'html.parser')
@@ -258,15 +323,26 @@ class ThreadedServer(object):
                                        'top:0px; left:0px; margin:0px; padding: 15px 0 0 0;' \
                                        'z-index: 1060; text-align: center; color: white'
                         injection_element.insert(0, config_data['HTTPInjection']['post']['body'])
-                        # if soup.body:
-                        soup.body.insert(0, injection_element)
-                        body_of_resp_to_proxy = soup.prettify()
+                        if soup.body:
+                            soup.body.insert(0, injection_element)
+                            body_of_resp_to_proxy = soup.prettify()
                         # print(body_of_resp)
 
                         resp_to_proxy = (head_resp_to_proxy+'\r\n\r\n'+body_of_resp_to_proxy).encode()
                         client.sendall(resp_to_proxy)
                 else:
                     client.sendall(resp_to_proxy)
+
+                #add to cache
+                if 'Cache-Control' in head_resp_dict:
+                    if 'no-cache' in head_resp_dict['Cache-Control']:
+                        cached_url = req_line.split()[1]
+                        logging.info(f'\n {cached_url} dont added to the to the cache\n')
+                else:
+                    cache.set(req_line, resp_to_proxy)
+                    cached_url = req_line.split()[1]
+                    logging.info(f'\n {cached_url} added to the to the cache\n')
+
 
                 # decod_resp = resp_to_proxy.decode('utf-8', 'ignore')
                 # logging.info('\n''----------------------------------------------------------------------\n'

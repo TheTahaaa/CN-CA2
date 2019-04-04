@@ -20,7 +20,7 @@
     "enable": true,
     "targets": [
       {
-        "URL": "sib.ir",
+        "URL": "ssib.ir",
         "notify": "true"
       },
       {
